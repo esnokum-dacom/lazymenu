@@ -66,40 +66,6 @@ static void resize_for_menu(const Menu *m) {
     XMoveResizeWindow(d, win, mx + (mw - (winw + PAD_X)), my + (mh - (winh + PAD_Y)), winw, winh);
 }
 
-static Window get_active_window(Display *d, Window root) {
-    Atom prop = XInternAtom(d, "_NET_ACTIVE_WINDOW", False);
-    Atom type;
-    int fmt;
-    unsigned long n, rem;
-    unsigned char *data = NULL;
-    Window w = None;
-
-    if (XGetWindowProperty(d, root, prop, 0, 1, False, XA_WINDOW,
-        &type, &fmt, &n, &rem, &data) == Success && data) {
-        w = *(Window *)data;
-        XFree(data);
-    }
-    return w;
-}
-
-static int get_win_monitor(Display *d, Window w) {
-    Atom prop = XInternAtom(d, "_SBCWM_MONITOR", False);
-    Atom type;
-    int fmt;
-    unsigned long n, rem;
-    unsigned char *data = NULL;
-
-    if (XGetWindowProperty(d, w, prop, 0, 1, False, XA_CARDINAL,
-        &type, &fmt, &n, &rem, &data) != Success || type != XA_CARDINAL || !data) {
-        if (data) XFree(data);
-        return -1;
-    }
-
-    int mon = (int)(*(unsigned long *)data);
-    XFree(data);
-    return mon;
-}
-
 static void render(void) {
     XClearWindow(d, win);
 
@@ -156,7 +122,7 @@ int main(void) {
     d = XOpenDisplay(NULL);
     if (!d) { fprintf(stderr, "cannot open display\n"); return 1; }
 
-    scr = DefaultScreen(d);
+scr = DefaultScreen(d);
     Window root = RootWindow(d, scr);
     vis = DefaultVisual(d, scr);
     cmap = DefaultColormap(d, scr);
@@ -164,20 +130,25 @@ int main(void) {
     mw = DisplayWidth(d, scr);
     mh = DisplayHeight(d, scr);
 
-    Window active = get_active_window(d, root);
-    int target_mon = -1;
-    if (active != None) {
-        target_mon = get_win_monitor(d, active);
-    }
-
     int nmon = 0;
     XRRMonitorInfo *info = XRRGetMonitors(d, root, True, &nmon);
     if (info && nmon > 0) {
-        if (target_mon >= 0 && target_mon < nmon) {
-            mx = info[target_mon].x;
-            my = info[target_mon].y;
-            mw = info[target_mon].width;
-            mh = info[target_mon].height;
+        Window dw;
+        int di;
+        unsigned int du;
+        int cx, cy;
+        
+        if (XQueryPointer(d, root, &dw, &dw, &cx, &cy, &di, &di, &du)) {
+            for (int i = 0; i < nmon; i++) {
+                if (cx >= info[i].x && cx < info[i].x + info[i].width &&
+                    cy >= info[i].y && cy < info[i].y + info[i].height) {
+                    mx = info[i].x;
+                    my = info[i].y;
+                    mw = info[i].width;
+                    mh = info[i].height;
+                    break;
+                }
+            }
         }
         XRRFreeMonitors(info);
     }

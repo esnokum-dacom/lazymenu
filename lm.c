@@ -134,13 +134,37 @@ int main(void) {
     XSetWindowAttributes attrs = {0};
     attrs.override_redirect = True;
     attrs.background_pixel = BlackPixel(d, scr);
-    attrs.event_mask = KeyPressMask | ExposureMask;
+    attrs.event_mask = KeyPressMask | ExposureMask | StructureNotifyMask;
 
     win = XCreateWindow(d, root, (mw - (winw + PAD_X)), (mh - (winh + PAD_Y)), winw, winh, 1,
                          DefaultDepth(d, scr), InputOutput, vis,
                          CWOverrideRedirect | CWBackPixel | CWEventMask, &attrs);
     XStoreName(d, win, "lazymenu");
     XMapRaised(d, win);
+
+    /* Wait until the window is actually viewable before grabbing the
+     * keyboard. Grabbing immediately after XMapRaised() races the X
+     * server: the grab can be issued before the map has taken effect,
+     * silently fails (return value was previously ignored), and the
+     * first keypress(es) get lost. */
+    {
+        XEvent me;
+        do {
+            XNextEvent(d, &me);
+        } while (me.type != MapNotify);
+    }
+
+    {
+        int gresult;
+        int tries = 0;
+        do {
+            gresult = XGrabKeyboard(d, win, True, GrabModeAsync,
+                                     GrabModeAsync, CurrentTime);
+            if (gresult != GrabSuccess) usleep(1000);
+        } while (gresult != GrabSuccess && ++tries < 100);
+        if (gresult != GrabSuccess)
+            fprintf(stderr, "lazymenu: failed to grab keyboard\n");
+    }
 
     draw = XftDrawCreate(d, win, vis, cmap);
     XRenderColor fgc = { 0xcccc, 0xcccc, 0xcccc, 0xffff };
@@ -152,8 +176,6 @@ int main(void) {
     XAllocNamedColor(d, cmap, SEL_BG, &selc, &selc);
     selgc = XCreateGC(d, win, 0, NULL);
     XSetForeground(d, selgc, selc.pixel);
-
-    XGrabKeyboard(d, win, True, GrabModeAsync, GrabModeAsync, CurrentTime);
 
     int running = 1;
     while (running) {

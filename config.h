@@ -25,6 +25,7 @@ static const Bind root_items[] = {
     { XK_t, "Terminal (Root)",   "st",				 NULL },
     { XK_f, "Fetch",   "st -g 50x15 -f 'FiraMono Nerd Font:size=22' -e bash -c 'vfetch; read -n 1 -s'", NULL },
 };
+
 static const Menu root_menu = {
     root_items, sizeof(root_items) / sizeof(root_items[0])
 };

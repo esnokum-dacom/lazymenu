@@ -69,6 +69,11 @@ static void render(void) {
     if (selected >= 0 && selected < cur->count) {
         int y = PAD_Y + selected * ROW_H;
         XFillRectangle(d, win, selgc, 4, y, winw - 8, ROW_H);
+
+        int cy = (PAD_Y * 2.5) + selected * ROW_H;
+        XftDrawStringUtf8(draw, &fg, font, 4, cy,
+                           (FcChar8 *)"|", strlen("|"));
+
     }
 
     for (int i = 0; i < cur->count; i++) {

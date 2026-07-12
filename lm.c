@@ -2,6 +2,8 @@
 #include <X11/Xlib.h>
 #include <X11/Xft/Xft.h>
 #include <X11/keysym.h>
+#include <X11/Xatom.h>
+#include <X11/extensions/Xrandr.h>
 #include <stdio.h>
 #include <string.h>
 #include <unistd.h>
@@ -37,6 +39,7 @@ static XftFont *font;
 static XftColor fg, hl;
 static GC selgc;
 static int scr, mw, mh;
+static int mx = 0, my = 0;
 static int winw, winh;
 static Visual *vis;
 static Colormap cmap;
@@ -60,7 +63,41 @@ static void size_for(const Menu *m, int *w, int *h) {
 
 static void resize_for_menu(const Menu *m) {
     size_for(m, &winw, &winh);
-    XMoveResizeWindow(d, win, (mw - (winw + PAD_X)), (mh - (winh + PAD_Y)), winw, winh);
+    XMoveResizeWindow(d, win, mx + (mw - (winw + PAD_X)), my + (mh - (winh + PAD_Y)), winw, winh);
+}
+
+static Window get_active_window(Display *d, Window root) {
+    Atom prop = XInternAtom(d, "_NET_ACTIVE_WINDOW", False);
+    Atom type;
+    int fmt;
+    unsigned long n, rem;
+    unsigned char *data = NULL;
+    Window w = None;
+
+    if (XGetWindowProperty(d, root, prop, 0, 1, False, XA_WINDOW,
+        &type, &fmt, &n, &rem, &data) == Success && data) {
+        w = *(Window *)data;
+        XFree(data);
+    }
+    return w;
+}
+
+static int get_win_monitor(Display *d, Window w) {
+    Atom prop = XInternAtom(d, "_SBCWM_MONITOR", False);
+    Atom type;
+    int fmt;
+    unsigned long n, rem;
+    unsigned char *data = NULL;
+
+    if (XGetWindowProperty(d, w, prop, 0, 1, False, XA_CARDINAL,
+        &type, &fmt, &n, &rem, &data) != Success || type != XA_CARDINAL || !data) {
+        if (data) XFree(data);
+        return -1;
+    }
+
+    int mon = (int)(*(unsigned long *)data);
+    XFree(data);
+    return mon;
 }
 
 static void render(void) {
@@ -84,10 +121,6 @@ static void render(void) {
                            (FcChar8 *)key, strlen(key));
         XftDrawStringUtf8(draw, &fg, font, PAD_X + KEY_COL, y,
                            (FcChar8 *)b->label, strlen(b->label));
-        if (b->submenu) {
-            int x = PAD_X + KEY_COL + 200;
-            XftDrawStringUtf8(draw, &fg, font, x, y, (FcChar8 *)">", 1);
-        }
     }
 }
 
@@ -127,8 +160,27 @@ int main(void) {
     Window root = RootWindow(d, scr);
     vis = DefaultVisual(d, scr);
     cmap = DefaultColormap(d, scr);
+    
     mw = DisplayWidth(d, scr);
     mh = DisplayHeight(d, scr);
+
+    Window active = get_active_window(d, root);
+    int target_mon = -1;
+    if (active != None) {
+        target_mon = get_win_monitor(d, active);
+    }
+
+    int nmon = 0;
+    XRRMonitorInfo *info = XRRGetMonitors(d, root, True, &nmon);
+    if (info && nmon > 0) {
+        if (target_mon >= 0 && target_mon < nmon) {
+            mx = info[target_mon].x;
+            my = info[target_mon].y;
+            mw = info[target_mon].width;
+            mh = info[target_mon].height;
+        }
+        XRRFreeMonitors(info);
+    }
 
     font = XftFontOpenName(d, scr, FONT);
     if (!font) { fprintf(stderr, "cannot load font\n"); return 1; }
@@ -141,7 +193,7 @@ int main(void) {
     attrs.background_pixel = BlackPixel(d, scr);
     attrs.event_mask = KeyPressMask | ExposureMask | StructureNotifyMask;
 
-    win = XCreateWindow(d, root, (mw - (winw + PAD_X)), (mh - (winh + PAD_Y)), winw, winh, 1,
+    win = XCreateWindow(d, root, mx + (mw - (winw + PAD_X)), my + (mh - (winh + PAD_Y)), winw, winh, 1,
                          DefaultDepth(d, scr), InputOutput, vis,
                          CWOverrideRedirect | CWBackPixel | CWEventMask, &attrs);
     XStoreName(d, win, "lazymenu");
@@ -156,7 +208,7 @@ int main(void) {
         XEvent me;
         do {
             XNextEvent(d, &me);
-        } while (me.type != MapNotify);
+        } while (me.type != MapNotify || me.xmap.window != win);
     }
 
     {
@@ -177,10 +229,14 @@ int main(void) {
     XftColorAllocValue(d, vis, cmap, &fgc, &fg);
     XftColorAllocValue(d, vis, cmap, &hlc, &hl);
 
+    XftColorAllocValue(d, vis, cmap, &hlc, &hl);
+
     XColor selc;
     XAllocNamedColor(d, cmap, SEL_BG, &selc, &selc);
     selgc = XCreateGC(d, win, 0, NULL);
     XSetForeground(d, selgc, selc.pixel);
+
+    render();
 
     int running = 1;
     while (running) {

@@ -1,5 +1,5 @@
 CFLAGS += -std=c99 -O2 -Wall -Wextra -pedantic
-CLIBS  += -lX11 $(shell pkg-config --cflags --libs xft)
+CLIBS  += -lX11 $(shell pkg-config --cflags --libs xft xrandr)
 PREFIX ?= /usr
 BINDIR ?= $(PREFIX)/bin
 CC     ?= gcc
